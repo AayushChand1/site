@@ -93,7 +93,7 @@ def split_meetings(text):
 # --------------------------------------------------
 
 def parse(content):
-    lines = content.split("\n")
+    lines = [l.strip() for l in content.split("\n")]
 
     data = {
         "facilitator": "",
@@ -109,11 +109,26 @@ def parse(content):
     current = None
 
     def norm(x):
-        return x.strip().lower().replace("**", "").replace(":", "").strip()
+        return x.lower().replace("**", "").replace(":", "").strip()
+
+    def next_value(i):
+        """
+        Finds next non-empty non-heading line safely
+        """
+        j = i + 1
+        while j < len(lines):
+            line = lines[j].strip()
+            if not line:
+                j += 1
+                continue
+            if line.startswith("###") or line.startswith("####"):
+                return ""
+            return line
+        return ""
 
     i = 0
     while i < len(lines):
-        line = lines[i].strip()
+        line = lines[i]
 
         if not line:
             i += 1
@@ -121,32 +136,35 @@ def parse(content):
 
         n = norm(line)
 
-        # ---------------- SINGLE VALUES ----------------
+        # ---------------- SINGLE VALUE FIELDS ----------------
         if "facilitator" in n:
-            data["facilitator"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            data["facilitator"] = next_value(i)
 
         elif "attendees" in n:
-            data["attendees"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            data["attendees"] = next_value(i)
 
         elif "note taking volunteer" in n:
-            data["note_taker"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            data["note_taker"] = next_value(i)
 
         elif "next month's facilitator" in n:
-            data["next_facilitator"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            data["next_facilitator"] = next_value(i)
 
-        # ---------------- SECTIONS ----------------
+        # ---------------- SECTION CONTROL ----------------
         elif "agenda" in n:
             current = "agenda"
+
         elif "open mic" in n:
             current = "open_mic"
+
         elif "upcoming events" in n:
             current = "events"
+
         elif "action items" in n or "meeting notes" in n:
             current = "actions"
 
         # ---------------- LIST ITEMS ----------------
         elif line.startswith("-"):
-            item = line.strip("- ").strip()
+            item = line.replace("-", "").strip()
 
             if current == "agenda":
                 data["agenda"].append(item)
@@ -160,6 +178,7 @@ def parse(content):
         i += 1
 
     return data
+
 
 # --------------------------------------------------
 # FORMAT MARKDOWN
