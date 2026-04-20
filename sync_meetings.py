@@ -131,7 +131,7 @@ def split_meetings(doc):
         # START OF NEW MEETING
         if is_h3 and match:
             if current_date and current_lines:
-                meetings.append((current_date, "\n".join(current_lines)))
+                meetings.append((current_date, "\n\n".join(current_lines)))
 
             month, day, year = match.group(1), int(match.group(2)), int(match.group(3))
             current_date = datetime(year, MONTHS[month], day)
@@ -141,7 +141,7 @@ def split_meetings(doc):
                 current_lines.append(formatted_line)
 
     if current_date and current_lines:
-        meetings.append((current_date, "\n".join(current_lines)))
+        meetings.append((current_date, "\n\n".join(current_lines)))
 
     output = []
     for date_obj, block in meetings:
