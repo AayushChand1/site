@@ -188,7 +188,7 @@ def main():
 
     text = extract_markdown(doc)
 
-    meetings = split_meetings(text)
+    meetings = split_meetings(doc)
 
     created, skipped = save(meetings)
 
