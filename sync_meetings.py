@@ -85,24 +85,48 @@ def extract_markdown(doc):
 # --------------------------------------------------
 
 def split_meetings(text):
-    matches = list(DATE_PATTERN.finditer(text))
+    lines = text.split("\n")
+
     meetings = []
+    current_start = None
+    current_date = None
+    buffer = []
 
-    for i, m in enumerate(matches):
-        month, day, year = m.group(1), int(m.group(2)), int(m.group(3))
+    def parse_date(line):
+        match = DATE_PATTERN.search(line)
+        if not match:
+            return None
 
-        start = m.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        month, day, year = match.group(1), int(match.group(2)), int(match.group(3))
+        return datetime(year, MONTHS[month], day)
 
-        block = text[start:end].strip()
+    for i, line in enumerate(lines):
 
-        date_obj = datetime(year, MONTHS[month], day)
+        # ONLY treat as meeting start if line is a H3-like heading
+        if line.strip().startswith("###") and DATE_PATTERN.search(line):
 
+            # save previous meeting
+            if current_date and buffer:
+                meetings.append((current_date, "\n".join(buffer)))
+
+            current_date = parse_date(line)
+            buffer = [line]
+
+        else:
+            if current_date:
+                buffer.append(line)
+
+    # last block
+    if current_date and buffer:
+        meetings.append((current_date, "\n".join(buffer)))
+
+    # build filenames
+    output = []
+    for date_obj, block in meetings:
         filename = f"meeting_{date_obj.strftime('%Y-%m-%d')}.md"
+        output.append((date_obj, filename, block))
 
-        meetings.append((date_obj, filename, block))
-
-    return meetings
+    return output
 
 # --------------------------------------------------
 # SAVE FILES
