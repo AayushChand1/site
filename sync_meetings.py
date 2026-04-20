@@ -39,7 +39,7 @@ def get_service():
     return build("docs", "v1", credentials=creds)
 
 # --------------------------------------------------
-# PRESERVE MARKDOWN FORMAT (BOLD + BULLETS + STRUCTURE)
+# GOOGLE DOC → MARKDOWN (PRESERVE FORMATTING)
 # --------------------------------------------------
 
 def extract_markdown(doc):
@@ -61,81 +61,61 @@ def extract_markdown(doc):
             text = run.get("content", "")
             style = run.get("textStyle", {})
 
-            # preserve bold
             if style.get("bold"):
-                text = f"**{text.strip()}** "
+                text = f"**{text.strip()}**"
 
             line += text
 
-        line = line.rstrip()
+        line = line.strip()
 
-        if not line.strip():
+        if not line:
             md += "\n"
             continue
 
         if is_bullet:
-            md += f"- {line.strip()}\n"
+            md += f"- {line}\n"
         else:
-            md += f"{line.strip()}\n"
+            md += f"{line}\n"
 
     return md
 
 # --------------------------------------------------
-# SPLIT BY H3 DATES
+# SPLIT BY H3 DATE HEADINGS (SAFE)
 # --------------------------------------------------
 
-def split_meetings(doc):
-    body = doc.get("body", {}).get("content", [])
+def split_meetings(text):
+    lines = text.split("\n")
 
     meetings = []
     current_date = None
-    current_lines = []
+    buffer = []
 
-    for block in body:
-        para = block.get("paragraph")
-        if not para:
-            continue
+    for line in lines:
 
-        text = ""
+        match = DATE_PATTERN.search(line)
+        is_heading = line.startswith("###")
 
-        # rebuild full paragraph text
-        for el in para.get("elements", []):
-            run = el.get("textRun")
-            if run:
-                text += run.get("content", "")
+        # ONLY treat real H3 date line as boundary
+        if is_heading and match:
 
-        text = text.strip()
-
-        if not text:
-            continue
-
-        # ONLY detect REAL heading blocks (H3 in Google Docs)
-        p_style = para.get("paragraphStyle", {})
-        named_style = p_style.get("namedStyleType", "")
-
-        is_h3 = named_style == "HEADING_3"
-
-        match = DATE_PATTERN.search(text)
-
-        # START OF NEW MEETING
-        if is_h3 and match:
-            # save previous meeting
-            if current_date and current_lines:
-                meetings.append((current_date, "\n".join(current_lines)))
+            if current_date and buffer:
+                meetings.append((current_date, "\n".join(buffer)))
 
             month, day, year = match.group(1), int(match.group(2)), int(match.group(3))
             current_date = datetime(year, MONTHS[month], day)
-            current_lines = [text]
+
+            buffer = [
+                f"# OSGeo Nepal General Meeting - {current_date.strftime('%B %d, %Y')}",
+                ""
+            ]
 
         else:
             if current_date:
-                current_lines.append(text)
+                buffer.append(line)
 
-    # last block
-    if current_date and current_lines:
-        meetings.append((current_date, "\n".join(current_lines)))
+    if current_date and buffer:
+        meetings.append((current_date, "\n".join(buffer)))
 
-    # convert to filenames
     output = []
     for date_obj, block in meetings:
         filename = f"meeting_{date_obj.strftime('%Y-%m-%d')}.md"
@@ -144,14 +124,14 @@ def split_meetings(doc):
     return output
 
 # --------------------------------------------------
-# SAVE FILES
+# SAVE FILES (YEAR-WISE)
 # --------------------------------------------------
 
 def save(meetings):
     created = []
     skipped = []
 
-    meetings.sort(key=lambda x: x[0])  # chronological order
+    meetings.sort(key=lambda x: x[0])
 
     for date_obj, filename, block in meetings:
 
@@ -164,12 +144,8 @@ def save(meetings):
             skipped.append(str(path))
             continue
 
-        title = f"# OSGeo Nepal General Meeting - {date_obj.strftime('%B %d, %Y')}\n\n"
-
-        content = title + block.strip() + "\n"
-
         with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
+            f.write(block.strip() + "\n")
 
         created.append(str(path))
 
@@ -186,10 +162,13 @@ def main():
     service = get_service()
     doc = service.documents().get(documentId=DOC_ID).execute()
 
+    # STEP 1: preserve formatting
     text = extract_markdown(doc)
 
-    meetings = split_meetings(doc)
+    # STEP 2: split safely
+    meetings = split_meetings(text)
 
+    # STEP 3: write files
     created, skipped = save(meetings)
 
     print("\n=== SYNC COMPLETE ===")
