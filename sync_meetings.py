@@ -6,11 +6,14 @@ from pathlib import Path
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# ---------------- CONFIG ----------------
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
 
 DOC_ID = os.environ.get("GOOGLE_DOC_ID")
-OUTPUT_DIR = Path("docs/Meetings")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+BASE_DIR = Path("docs/Meetings")
+BASE_DIR.mkdir(parents=True, exist_ok=True)
 
 SCOPES = ["https://www.googleapis.com/auth/documents.readonly"]
 
@@ -24,7 +27,9 @@ DATE_PATTERN = re.compile(
     r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s+(\d{4})"
 )
 
-# ---------------- AUTH ----------------
+# --------------------------------------------------
+# AUTH
+# --------------------------------------------------
 
 def get_service():
     creds = service_account.Credentials.from_service_account_info(
@@ -33,26 +38,51 @@ def get_service():
     )
     return build("docs", "v1", credentials=creds)
 
-# ---------------- EXTRACT RAW TEXT ----------------
+# --------------------------------------------------
+# PRESERVE MARKDOWN FORMAT (BOLD + BULLETS + STRUCTURE)
+# --------------------------------------------------
 
-def extract_text(doc):
-    text = ""
+def extract_markdown(doc):
+    md = ""
+
     for block in doc.get("body", {}).get("content", []):
         para = block.get("paragraph")
         if not para:
             continue
 
         line = ""
+        is_bullet = para.get("bullet") is not None
+
         for el in para.get("elements", []):
             run = el.get("textRun")
-            if run:
-                line += run.get("content", "")
+            if not run:
+                continue
 
-        text += line + "\n"
+            text = run.get("content", "")
+            style = run.get("textStyle", {})
 
-    return text
+            # preserve bold
+            if style.get("bold"):
+                text = f"**{text.strip()}** "
 
-# ---------------- SPLIT BY H3 DATES ----------------
+            line += text
+
+        line = line.rstrip()
+
+        if not line.strip():
+            md += "\n"
+            continue
+
+        if is_bullet:
+            md += f"- {line.strip()}\n"
+        else:
+            md += f"{line.strip()}\n"
+
+    return md
+
+# --------------------------------------------------
+# SPLIT BY H3 DATES
+# --------------------------------------------------
 
 def split_meetings(text):
     matches = list(DATE_PATTERN.finditer(text))
@@ -74,17 +104,19 @@ def split_meetings(text):
 
     return meetings
 
-# ---------------- WRITE FILES (NO FORMAT CHANGE) ----------------
+# --------------------------------------------------
+# SAVE FILES
+# --------------------------------------------------
 
 def save(meetings):
     created = []
     skipped = []
 
-    meetings.sort(key=lambda x: x[0])  # optional chronological order
+    meetings.sort(key=lambda x: x[0])  # chronological order
 
     for date_obj, filename, block in meetings:
 
-        year_dir = OUTPUT_DIR / str(date_obj.year)
+        year_dir = BASE_DIR / str(date_obj.year)
         year_dir.mkdir(parents=True, exist_ok=True)
 
         path = year_dir / filename
@@ -104,20 +136,27 @@ def save(meetings):
 
     return created, skipped
 
-# ---------------- MAIN ----------------
+# --------------------------------------------------
+# MAIN
+# --------------------------------------------------
 
 def main():
+    if not DOC_ID:
+        raise ValueError("Missing GOOGLE_DOC_ID")
+
     service = get_service()
     doc = service.documents().get(documentId=DOC_ID).execute()
 
-    text = extract_text(doc)
+    text = extract_markdown(doc)
 
     meetings = split_meetings(text)
 
     created, skipped = save(meetings)
 
+    print("\n=== SYNC COMPLETE ===")
     print("Created:", len(created))
     print("Skipped:", len(skipped))
+
 
 if __name__ == "__main__":
     main()
