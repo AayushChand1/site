@@ -39,7 +39,7 @@ def get_service():
     return build("docs", "v1", credentials=creds)
 
 # --------------------------------------------------
-# GOOGLE DOC → MARKDOWN (PRESERVE FORMATTING)
+# PRESERVE MARKDOWN FORMAT (BOLD + BULLETS + STRUCTURE)
 # --------------------------------------------------
 
 def extract_markdown(doc):
@@ -61,77 +61,103 @@ def extract_markdown(doc):
             text = run.get("content", "")
             style = run.get("textStyle", {})
 
+            # preserve bold
             if style.get("bold"):
-                text = f"**{text.strip()}**"
+                text = f"**{text.strip()}** "
 
             line += text
 
-        line = line.strip()
+        line = line.rstrip()
 
-        if not line:
+        if not line.strip():
             md += "\n"
             continue
 
         if is_bullet:
-            md += f"- {line}\n"
+            md += f"- {line.strip()}\n"
         else:
-            md += f"{line}\n"
+            md += f"{line.strip()}\n"
 
     return md
 
 # --------------------------------------------------
-# SPLIT BY H3 DATE HEADINGS (SAFE)
+# SPLIT BY H3 DATES
 # --------------------------------------------------
 
-def split_meetings(text):
-    lines = text.split("\n")
+def format_paragraph(para):
+    """Helper to convert a single GDoc paragraph to Markdown."""
+    line = ""
+    is_bullet = para.get("bullet") is not None
+    
+    # Process text elements (bold, etc.)
+    for el in para.get("elements", []):
+        run = el.get("textRun")
+        if not run:
+            continue
+        text = run.get("content", "")
+        style = run.get("textStyle", {})
+        if style.get("bold"):
+            text = f"**{text.strip()}** "
+        line += text
+    
+    line = line.strip()
+    if not line:
+        return ""
+    
+    # Apply bullet if present
+    if is_bullet:
+        return f"- {line}"
+    return line
 
+def split_meetings(doc):
+    body = doc.get("body", {}).get("content", [])
     meetings = []
     current_date = None
-    buffer = []
+    current_lines = []
 
-    for line in lines:
+    for block in body:
+        para = block.get("paragraph")
+        if not para:
+            continue
+            
+        # Use our new helper to get formatted text
+        formatted_line = format_paragraph(para)
+        
+        # Check for H3 for splitting
+        p_style = para.get("paragraphStyle", {})
+        is_h3 = p_style.get("namedStyleType") == "HEADING_3"
+        match = DATE_PATTERN.search(formatted_line)
 
-        match = DATE_PATTERN.search(line)
-        is_heading = line.startswith("###")
-
-        # ONLY treat real H3 date line as boundary
-        if is_heading and match:
-
-            if current_date and buffer:
-                meetings.append((current_date, "\n".join(buffer)))
+        # START OF NEW MEETING
+        if is_h3 and match:
+            if current_date and current_lines:
+                meetings.append((current_date, "\n".join(current_lines)))
 
             month, day, year = match.group(1), int(match.group(2)), int(match.group(3))
             current_date = datetime(year, MONTHS[month], day)
-
-            buffer = [
-                f"# OSGeo Nepal General Meeting - {current_date.strftime('%B %d, %Y')}",
-                ""
-            ]
-
+            current_lines = [formatted_line]
         else:
             if current_date:
-                buffer.append(line)
+                current_lines.append(formatted_line)
 
-    if current_date and buffer:
-        meetings.append((current_date, "\n".join(buffer)))
+    if current_date and current_lines:
+        meetings.append((current_date, "\n".join(current_lines)))
 
     output = []
     for date_obj, block in meetings:
         filename = f"meeting_{date_obj.strftime('%Y-%m-%d')}.md"
         output.append((date_obj, filename, block))
-
     return output
 
 # --------------------------------------------------
-# SAVE FILES (YEAR-WISE)
+# SAVE FILES
 # --------------------------------------------------
 
 def save(meetings):
     created = []
     skipped = []
 
-    meetings.sort(key=lambda x: x[0])
+    meetings.sort(key=lambda x: x[0])  # chronological order
 
     for date_obj, filename, block in meetings:
 
@@ -144,8 +170,12 @@ def save(meetings):
             skipped.append(str(path))
             continue
 
+        title = f"# OSGeo Nepal General Meeting - {date_obj.strftime('%B %d, %Y')}\n\n"
+
+        content = title + block.strip() + "\n"
+
         with open(path, "w", encoding="utf-8") as f:
-            f.write(block.strip() + "\n")
+            f.write(content)
 
         created.append(str(path))
 
@@ -162,13 +192,10 @@ def main():
     service = get_service()
     doc = service.documents().get(documentId=DOC_ID).execute()
 
-    # STEP 1: preserve formatting
     text = extract_markdown(doc)
 
-    # STEP 2: split safely
-    meetings = split_meetings(text)
+    meetings = split_meetings(doc)
 
-    # STEP 3: write files
     created, skipped = save(meetings)
 
     print("\n=== SYNC COMPLETE ===")
