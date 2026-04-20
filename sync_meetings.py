@@ -36,12 +36,10 @@ def get_docs_service():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
 
     if not creds_json:
-        raise ValueError("Missing GOOGLE_CREDENTIALS environment variable")
-
-    creds_info = json.loads(creds_json)
+        raise ValueError("Missing GOOGLE_CREDENTIALS")
 
     creds = service_account.Credentials.from_service_account_info(
-        creds_info,
+        json.loads(creds_json),
         scopes=SCOPES
     )
 
@@ -53,15 +51,13 @@ def get_docs_service():
 
 def extract_text(doc):
     text = ""
-    body = doc.get("body", {}).get("content", [])
-
-    for block in body:
-        paragraph = block.get("paragraph")
-        if not paragraph:
+    for block in doc.get("body", {}).get("content", []):
+        para = block.get("paragraph")
+        if not para:
             continue
 
-        for elem in paragraph.get("elements", []):
-            run = elem.get("textRun")
+        for el in para.get("elements", []):
+            run = el.get("textRun")
             if run:
                 text += run.get("content", "")
 
@@ -70,26 +66,22 @@ def extract_text(doc):
     return text
 
 # --------------------------------------------------
-# SPLIT MEETINGS
+# SPLIT BY DATE HEADINGS
 # --------------------------------------------------
 
 def split_meetings(text):
     matches = list(DATE_PATTERN.finditer(text))
-
     meetings = []
 
-    for i, match in enumerate(matches):
-        month = match.group(1)
-        day = int(match.group(2))
-        year = int(match.group(3))
+    for i, m in enumerate(matches):
+        month, day, year = m.group(1), int(m.group(2)), int(m.group(3))
 
-        start = match.start()
+        start = m.start()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
 
         section = text[start:end].strip()
 
         date_obj = datetime(year, MONTHS[month], day)
-
         filename = f"meeting_{date_obj.strftime('%Y-%m-%d')}.md"
 
         meetings.append((date_obj, filename, section))
@@ -97,65 +89,114 @@ def split_meetings(text):
     return meetings
 
 # --------------------------------------------------
-# FIELD HELPERS
+# STRUCTURE-AWARE PARSER (IMPORTANT FIX)
 # --------------------------------------------------
 
-def get_field(text, label):
-    match = re.search(rf"\*\*{label}:\*\*\s*(.*)", text)
-    return match.group(1).strip() if match else ""
+def parse(content):
+    lines = content.split("\n")
 
-def get_list(text, section):
-    pattern = rf"\*\*{section}\*\*.*?(?=\*\*|$)"
-    match = re.search(pattern, text, re.DOTALL)
-    if not match:
-        return []
-    return [l.strip("- ").strip() for l in match.group(0).split("\n") if l.strip().startswith("-")]
+    data = {
+        "facilitator": "",
+        "attendees": "",
+        "note_taker": "",
+        "agenda": [],
+        "open_mic": [],
+        "events": [],
+        "next_facilitator": "",
+        "actions": []
+    }
+
+    current = None
+
+    def norm(x):
+        return x.strip().lower().replace("**", "").replace(":", "").strip()
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+
+        if not line:
+            i += 1
+            continue
+
+        n = norm(line)
+
+        # ---------------- SINGLE VALUES ----------------
+        if "facilitator" in n:
+            data["facilitator"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+
+        elif "attendees" in n:
+            data["attendees"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+
+        elif "note taking volunteer" in n:
+            data["note_taker"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+
+        elif "next month's facilitator" in n:
+            data["next_facilitator"] = lines[i + 1].strip() if i + 1 < len(lines) else ""
+
+        # ---------------- SECTIONS ----------------
+        elif "agenda" in n:
+            current = "agenda"
+        elif "open mic" in n:
+            current = "open_mic"
+        elif "upcoming events" in n:
+            current = "events"
+        elif "action items" in n or "meeting notes" in n:
+            current = "actions"
+
+        # ---------------- LIST ITEMS ----------------
+        elif line.startswith("-"):
+            item = line.strip("- ").strip()
+
+            if current == "agenda":
+                data["agenda"].append(item)
+            elif current == "open_mic":
+                data["open_mic"].append(item)
+            elif current == "events":
+                data["events"].append(item)
+            elif current == "actions":
+                data["actions"].append(item)
+
+        i += 1
+
+    return data
 
 # --------------------------------------------------
-# FORMAT MEETING
+# FORMAT MARKDOWN
 # --------------------------------------------------
 
 def format_meeting(date_str, content):
 
-    facilitator = get_field(content, "Facilitator")
-    attendees = get_field(content, "Attendees")
-    note_taker = get_field(content, "Note Taking volunteer")
-    next_facilitator = get_field(content, "Next month's facilitator")
-
-    agenda = get_list(content, "Agendas") or get_list(content, "Agenda")
-    open_mic = get_list(content, "Open Mic")
-    events = get_list(content, "Upcoming Events and Opportunities")
-    actions = get_list(content, "Meeting notes and action items")
+    d = parse(content)
 
     md = f"""# OSGeo Nepal General Meeting - {date_str}
 
-**Facilitator**: {facilitator}  
-**Attendees**: {attendees}  
-**Note-taking volunteer**: {note_taker}  
+**Facilitator**: {d['facilitator']}  
+**Attendees**: {d['attendees']}  
+**Note-taking volunteer**: {d['note_taker']}  
 
 ## Agendas
 """
 
-    for a in agenda:
+    for a in d["agenda"]:
         md += f"- [ ] {a}\n"
 
     md += "\n## Open Mic\n"
-    for o in open_mic:
+    for o in d["open_mic"]:
         md += f"- [ ] {o}\n"
 
     md += "\n## Upcoming Events and Opportunities\n"
-    for e in events:
+    for e in d["events"]:
         md += f"- [ ] {e}\n"
 
     md += f"""
-
 ## Next month's facilitator
-- {next_facilitator}
+- {d['next_facilitator']}
 
 ## Action items
 """
 
-    for a in actions:
+    for a in d["actions"]:
         md += f"- [ ] {a}\n"
 
     return md
@@ -165,10 +206,8 @@ def format_meeting(date_str, content):
 # --------------------------------------------------
 
 def save_meetings(meetings):
-    created = []
-    skipped = []
+    created, skipped = [], []
 
-    # 🔥 SORT NEWEST FIRST
     meetings.sort(key=lambda x: x[0], reverse=True)
 
     for date_obj, filename, content in meetings:
@@ -181,12 +220,10 @@ def save_meetings(meetings):
             skipped.append(str(path))
             continue
 
-        date_str = date_obj.strftime("%B %d, %Y")
-
-        formatted = format_meeting(date_str, content)
+        md = format_meeting(date_obj.strftime("%B %d, %Y"), content)
 
         with open(path, "w", encoding="utf-8") as f:
-            f.write(formatted)
+            f.write(md)
 
         created.append(str(path))
 
@@ -197,9 +234,6 @@ def save_meetings(meetings):
 # --------------------------------------------------
 
 def main():
-    if not DOC_ID:
-        raise ValueError("Missing GOOGLE_DOC_ID environment variable")
-
     service = get_docs_service()
     doc = service.documents().get(documentId=DOC_ID).execute()
 
@@ -209,17 +243,15 @@ def main():
 
     created, skipped = save_meetings(meetings)
 
-    print("\n=== SYNC RESULTS ===")
-
     print("\nCreated:")
     for c in created:
-        print(" +", c)
+        print("+", c)
 
     print("\nSkipped:")
     for s in skipped:
-        print(" -", s)
+        print("-", s)
 
-    print(f"\nDone → Created: {len(created)}, Skipped: {len(skipped)}")
+    print(f"\nDone → {len(created)} created, {len(skipped)} skipped")
 
 
 if __name__ == "__main__":
