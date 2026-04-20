@@ -108,58 +108,61 @@ def parse(content):
 
     current = None
 
-    def norm(x):
+    def clean(x):
         return x.lower().replace("**", "").replace(":", "").strip()
+
+    def is_heading(line):
+        return line.startswith("###") or line.startswith("####")
 
     def next_value(i):
         """
-        Finds next non-empty non-heading line safely
+        Returns next non-empty NON-heading line
         """
         j = i + 1
         while j < len(lines):
-            line = lines[j].strip()
-            if not line:
+            l = lines[j].strip()
+            if not l:
                 j += 1
                 continue
-            if line.startswith("###") or line.startswith("####"):
+            if is_heading(l):
                 return ""
-            return line
+            return l
         return ""
 
     i = 0
     while i < len(lines):
-        line = lines[i]
+        line = lines[i].strip()
 
         if not line:
             i += 1
             continue
 
-        n = norm(line)
+        n = clean(line)
 
-        # ---------------- SINGLE VALUE FIELDS ----------------
-        if "facilitator" in n:
+        # ---------------- STRICT FIELD MATCHING ----------------
+        if n == "facilitator":
             data["facilitator"] = next_value(i)
 
-        elif "attendees" in n:
+        elif n == "attendees":
             data["attendees"] = next_value(i)
 
-        elif "note taking volunteer" in n:
+        elif n == "note taking volunteer":
             data["note_taker"] = next_value(i)
 
-        elif "next month's facilitator" in n:
+        elif n == "next facilitator":
             data["next_facilitator"] = next_value(i)
 
-        # ---------------- SECTION CONTROL ----------------
+        # ---------------- SECTION SWITCHING ONLY ----------------
         elif "agenda" in n:
             current = "agenda"
 
         elif "open mic" in n:
             current = "open_mic"
 
-        elif "upcoming events" in n:
+        elif "upcoming events and opportunities" in n:
             current = "events"
 
-        elif "action items" in n or "meeting notes" in n:
+        elif "action items" in n:
             current = "actions"
 
         # ---------------- LIST ITEMS ----------------
@@ -178,7 +181,6 @@ def parse(content):
         i += 1
 
     return data
-
 
 # --------------------------------------------------
 # FORMAT MARKDOWN
