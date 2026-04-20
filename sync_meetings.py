@@ -84,43 +84,58 @@ def extract_markdown(doc):
 # SPLIT BY H3 DATES
 # --------------------------------------------------
 
-def split_meetings(text):
-    lines = text.split("\n")
+def split_meetings(doc):
+    body = doc.get("body", {}).get("content", [])
 
     meetings = []
-    current_start = None
     current_date = None
-    buffer = []
+    current_lines = []
 
-    def parse_date(line):
-        match = DATE_PATTERN.search(line)
-        if not match:
-            return None
+    for block in body:
+        para = block.get("paragraph")
+        if not para:
+            continue
 
-        month, day, year = match.group(1), int(match.group(2)), int(match.group(3))
-        return datetime(year, MONTHS[month], day)
+        text = ""
 
-    for i, line in enumerate(lines):
+        # rebuild full paragraph text
+        for el in para.get("elements", []):
+            run = el.get("textRun")
+            if run:
+                text += run.get("content", "")
 
-        # ONLY treat as meeting start if line is a H3-like heading
-        if line.strip().startswith("###") and DATE_PATTERN.search(line):
+        text = text.strip()
 
+        if not text:
+            continue
+
+        # ONLY detect REAL heading blocks (H3 in Google Docs)
+        p_style = para.get("paragraphStyle", {})
+        named_style = p_style.get("namedStyleType", "")
+
+        is_h3 = named_style == "HEADING_3"
+
+        match = DATE_PATTERN.search(text)
+
+        # START OF NEW MEETING
+        if is_h3 and match:
             # save previous meeting
-            if current_date and buffer:
-                meetings.append((current_date, "\n".join(buffer)))
+            if current_date and current_lines:
+                meetings.append((current_date, "\n".join(current_lines)))
 
-            current_date = parse_date(line)
-            buffer = [line]
+            month, day, year = match.group(1), int(match.group(2)), int(match.group(3))
+            current_date = datetime(year, MONTHS[month], day)
+            current_lines = [text]
 
         else:
             if current_date:
-                buffer.append(line)
+                current_lines.append(text)
 
     # last block
-    if current_date and buffer:
-        meetings.append((current_date, "\n".join(buffer)))
+    if current_date and current_lines:
+        meetings.append((current_date, "\n".join(current_lines)))
 
-    # build filenames
+    # convert to filenames
     output = []
     for date_obj, block in meetings:
         filename = f"meeting_{date_obj.strftime('%Y-%m-%d')}.md"
