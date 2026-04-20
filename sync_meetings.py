@@ -157,7 +157,7 @@ def save(meetings):
     created = []
     skipped = []
 
-    meetings.sort(key=lambda x: x[0])  # chronological order
+    meetings.sort(key=lambda x: x[0], reverse = True)  # chronological order
 
     for date_obj, filename, block in meetings:
 
@@ -191,8 +191,6 @@ def main():
 
     service = get_service()
     doc = service.documents().get(documentId=DOC_ID).execute()
-
-    text = extract_markdown(doc)
 
     meetings = split_meetings(doc)
 
