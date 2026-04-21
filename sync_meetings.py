@@ -157,15 +157,12 @@ def save(meetings):
     created = []
     skipped = []
 
-    meetings.sort(key=lambda x: x[0], reverse = True)  # chronological order
-
     for date_obj, filename, block in meetings:
 
         year_dir = BASE_DIR / str(date_obj.year)
         year_dir.mkdir(parents=True, exist_ok=True)
 
-        safe_name = date_obj.strftime("%Y-%m-%d") + "_" + filename
-        path = year_dir / safe_name
+        path = year_dir / filename
 
         if path.exists():
             skipped.append(str(path))
