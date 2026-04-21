@@ -1,0 +1,3 @@
+sort:
+  type: filename
+  reverse: true
