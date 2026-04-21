@@ -1,1 +1,3 @@
-order: desc
+sort:
+  type: date
+  reverse: true
