@@ -164,7 +164,8 @@ def save(meetings):
         year_dir = BASE_DIR / str(date_obj.year)
         year_dir.mkdir(parents=True, exist_ok=True)
 
-        path = year_dir / filename
+        safe_name = date_obj.strftime("%Y-%m-%d") + "_" + filename
+        path = year_dir / safe_name
 
         if path.exists():
             skipped.append(str(path))
