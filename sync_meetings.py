@@ -88,6 +88,8 @@ def format_paragraph(para):
     """Helper to convert a single GDoc paragraph to Markdown."""
     line = ""
     is_bullet = para.get("bullet") is not None
+    p_style = para.get("paragraphStyle", {})
+    is_h4 = p_style.get("namedStyleType") == "HEADING_4"
     
     # Process text elements (bold, etc.)
     for el in para.get("elements", []):
@@ -107,6 +109,8 @@ def format_paragraph(para):
     # Apply bullet if present
     if is_bullet:
         return f"- {line}"
+    if is_h4 and not (line.startswith("**") and line.endswith("**")):
+        return f"**{line}**"
     return line
 
 def split_meetings(doc):

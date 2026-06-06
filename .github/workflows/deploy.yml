@@ -6,6 +6,8 @@ on:
       - main
 
   workflow_dispatch:
+  schedule:
+    - cron: "15 19 15 * *"  # runs monthly on the 16th at 01:00 Nepal time
 
 permissions:
   contents: read
