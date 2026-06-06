@@ -4,7 +4,7 @@ name: Sync Google Docs Meetings → MkDocs
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 2 * * *"  # runs daily at 02:00 UTC
+    - cron: "15 18 15 * *"  # runs monthly on the 16th at 00:00 Nepal time
 
 permissions:
   contents: write
